@@ -1,26 +1,26 @@
 """
-Claude agentic loop for PR code review.
+Groq agentic loop for PR code review.
+
+Uses Llama 3.3 70B via Groq (free tier).
+Groq's SDK is OpenAI-compatible — tool use works identically.
 
 Claude is given two tools:
   - add_review_comment  : flag an issue on a specific file + line
   - set_review_summary  : write the overall PR summary (called once, at the end)
 
-The loop runs until Claude calls set_review_summary (end signal) or hits
-the max-iteration guard.
+The loop runs until set_review_summary is called or the max-iteration guard fires.
 """
 
 import logging
-from typing import Any
-
-import anthropic
+from groq import Groq
 
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-_MODEL = "claude-sonnet-4-6"
+_MODEL = "llama-3.3-70b-versatile"
 _MAX_TOKENS = 4096
-_MAX_ITERATIONS = 10   # Guard against infinite tool-use loops
+_MAX_ITERATIONS = 10
 
 _SYSTEM_PROMPT = """\
 You are an expert code reviewer. You will be given a pull request diff.
@@ -41,64 +41,71 @@ logic errors, or missing error handling.
 - If the PR looks good, say so in the summary and post no inline comments.
 - Use the line number exactly as it appears in the diff (the number after +).
 - Risk levels: LOW (minor improvement), MEDIUM (could cause issues), HIGH (bug/security).
+- You MUST call set_review_summary at the end, always.
 """
 
-_TOOLS: list[dict] = [
+_TOOLS = [
     {
-        "name": "add_review_comment",
-        "description": (
-            "Flag an issue on a specific line of a specific file in the PR diff. "
-            "Call this once per issue found."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "File path exactly as shown in the diff header.",
+        "type": "function",
+        "function": {
+            "name": "add_review_comment",
+            "description": (
+                "Flag an issue on a specific line of a specific file in the PR diff. "
+                "Call this once per issue found."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "File path exactly as shown in the diff header.",
+                    },
+                    "line": {
+                        "type": "integer",
+                        "description": "Line number in the NEW file (right side of diff).",
+                    },
+                    "risk": {
+                        "type": "string",
+                        "enum": ["LOW", "MEDIUM", "HIGH"],
+                        "description": "Severity of the issue.",
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "Concise, actionable review comment (markdown supported).",
+                    },
                 },
-                "line": {
-                    "type": "integer",
-                    "description": "Line number in the NEW file (right side of diff).",
-                },
-                "risk": {
-                    "type": "string",
-                    "enum": ["LOW", "MEDIUM", "HIGH"],
-                    "description": "Severity of the issue.",
-                },
-                "body": {
-                    "type": "string",
-                    "description": "Concise, actionable review comment (markdown supported).",
-                },
+                "required": ["path", "line", "risk", "body"],
             },
-            "required": ["path", "line", "risk", "body"],
         },
     },
     {
-        "name": "set_review_summary",
-        "description": (
-            "Write the overall PR review summary. "
-            "Call this ONCE after you have added all inline comments. "
-            "This signals that the review is complete."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "summary": {
-                    "type": "string",
-                    "description": "Overall assessment of the PR (markdown supported).",
+        "type": "function",
+        "function": {
+            "name": "set_review_summary",
+            "description": (
+                "Write the overall PR review summary. "
+                "Call this ONCE after you have added all inline comments. "
+                "This signals that the review is complete."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "summary": {
+                        "type": "string",
+                        "description": "Overall assessment of the PR (markdown supported).",
+                    },
+                    "verdict": {
+                        "type": "string",
+                        "enum": ["APPROVED", "NEEDS_WORK", "CRITICAL"],
+                        "description": (
+                            "APPROVED: looks good. "
+                            "NEEDS_WORK: minor issues. "
+                            "CRITICAL: serious bugs or security issues."
+                        ),
+                    },
                 },
-                "verdict": {
-                    "type": "string",
-                    "enum": ["APPROVED", "NEEDS_WORK", "CRITICAL"],
-                    "description": (
-                        "APPROVED: looks good. "
-                        "NEEDS_WORK: minor issues. "
-                        "CRITICAL: serious bugs or security issues."
-                    ),
-                },
+                "required": ["summary", "verdict"],
             },
-            "required": ["summary", "verdict"],
         },
     },
 ]
@@ -129,14 +136,16 @@ async def run_review(
     diff_text: str,
 ) -> tuple[str, list[dict]]:
     """
-    Run the Claude agentic review loop.
+    Run the Groq agentic review loop.
 
     Returns:
         summary  : formatted overall review text
         comments : list of {path, line, body} dicts for inline posting
     """
+    import json
+
     settings = get_settings()
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    client = Groq(api_key=settings.groq_api_key)
 
     user_message = (
         f"**PR Title:** {pr_title}\n\n"
@@ -144,71 +153,85 @@ async def run_review(
         f"**Diff:**\n\n{diff_text}"
     )
 
-    messages: list[dict[str, Any]] = [{"role": "user", "content": user_message}]
+    messages = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": user_message},
+    ]
 
     collected_comments: list[dict] = []
-    summary_text = "_No summary provided._"
+    summary_text = "_Review completed._"
     iterations = 0
 
     while iterations < _MAX_ITERATIONS:
         iterations += 1
-        logger.debug("Claude iteration %d", iterations)
+        logger.debug("Groq iteration %d", iterations)
 
-        response = client.messages.create(
+        response = client.chat.completions.create(
             model=_MODEL,
             max_tokens=_MAX_TOKENS,
-            system=_SYSTEM_PROMPT,
             tools=_TOOLS,
+            tool_choice="auto",
             messages=messages,
         )
 
-        # Collect tool calls from this response
-        tool_results: list[dict[str, Any]] = []
+        message = response.choices[0].message
+        finish_reason = response.choices[0].finish_reason
+
+        # Append assistant turn to history
+        messages.append({"role": "assistant", "content": message.content or "", "tool_calls": message.tool_calls or []})
+
+        # If no tool calls, model is done
+        if not message.tool_calls:
+            logger.debug("No tool calls — stopping loop")
+            break
+
         review_done = False
 
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
+        for tool_call in message.tool_calls:
+            fn_name = tool_call.function.name
+            try:
+                fn_args = json.loads(tool_call.function.arguments)
+            except json.JSONDecodeError:
+                logger.warning("Could not parse tool args for %s", fn_name)
+                fn_args = {}
 
-            tool_name: str = block.name
-            tool_input: dict = block.input
-
-            if tool_name == "add_review_comment":
+            if fn_name == "add_review_comment":
                 comment = {
-                    "path": tool_input["path"],
-                    "line": tool_input["line"],
-                    "body": _format_comment(tool_input["risk"], tool_input["body"]),
+                    "path": fn_args.get("path", ""),
+                    "line": fn_args.get("line", 1),
+                    "body": _format_comment(
+                        fn_args.get("risk", "LOW"),
+                        fn_args.get("body", ""),
+                    ),
                 }
                 collected_comments.append(comment)
                 logger.debug(
                     "Comment queued: %s line %d [%s]",
-                    tool_input["path"],
-                    tool_input["line"],
-                    tool_input["risk"],
+                    fn_args.get("path"),
+                    fn_args.get("line"),
+                    fn_args.get("risk"),
                 )
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": "Comment recorded.",
-                })
+                tool_result = "Comment recorded."
 
-            elif tool_name == "set_review_summary":
+            elif fn_name == "set_review_summary":
                 summary_text = _format_summary(
-                    tool_input["summary"], tool_input["verdict"]
+                    fn_args.get("summary", ""),
+                    fn_args.get("verdict", "NEEDS_WORK"),
                 )
                 review_done = True
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": "Summary recorded. Review complete.",
-                })
+                tool_result = "Summary recorded. Review complete."
 
-        # Feed all tool results back in one turn
-        if tool_results:
-            messages.append({"role": "assistant", "content": response.content})
-            messages.append({"role": "user", "content": tool_results})
+            else:
+                tool_result = f"Unknown tool: {fn_name}"
 
-        if review_done or response.stop_reason == "end_turn":
+            # Feed tool result back
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": tool_result,
+            })
+
+        if review_done or finish_reason == "stop":
             break
 
     if iterations >= _MAX_ITERATIONS:

@@ -16,8 +16,8 @@ class Settings(BaseSettings):
     github_private_key: str = ""     # Full PEM string (newlines as \n)
     github_webhook_secret: str = ""
 
-    # Anthropic
-    anthropic_api_key: str = ""
+    # Groq
+    groq_api_key: str = ""
 
     # Behaviour
     max_files_per_review: int = 50   # Skip files beyond this count
@@ -52,7 +52,7 @@ class Settings(BaseSettings):
             self.github_app_id
             and self.github_private_key
             and self.github_webhook_secret
-            and self.anthropic_api_key
+            and self.groq_api_key
         )
 
 
