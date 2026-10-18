@@ -44,7 +44,12 @@ logging.config.dictConfig(
                 "formatter": "default",
             }
         },
-        "root": {"level": get_settings().log_level, "handlers": ["console"]},
+        # Read log level from env directly to avoid triggering Settings validation
+        # before the app is fully initialised (e.g. during test collection).
+        "root": {
+            "level": __import__("os").environ.get("LOG_LEVEL", "INFO"),
+            "handlers": ["console"],
+        },
     }
 )
 
@@ -56,7 +61,13 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("PR Reviewer starting up")
+    settings = get_settings()
+    if not settings.is_configured():
+        raise RuntimeError(
+            "Missing required environment variables. "
+            "Copy .env.example to .env and fill in all values."
+        )
+    logger.info("PR Reviewer starting up (App ID: %s)", settings.github_app_id)
     yield
     logger.info("PR Reviewer shutting down")
 
@@ -190,7 +201,7 @@ async def webhook(
     # Only process pull_request events
     if x_github_event != "pull_request":
         logger.debug("Ignoring event: %s", x_github_event)
-        return JSONResponse({"status": "ignored", "event": x_github_event})
+        return JSONResponse({"status": "ignored", "event": x_github_event}, status_code=202)
 
     payload = await request.json()
     action: str = payload.get("action", "")
@@ -198,7 +209,7 @@ async def webhook(
     # Only review when a PR is opened, updated, or reopened
     if action not in {"opened", "synchronize", "reopened"}:
         logger.debug("Ignoring pull_request action: %s", action)
-        return JSONResponse({"status": "ignored", "action": action})
+        return JSONResponse({"status": "ignored", "action": action}, status_code=202)
 
     # Ensure the payload has an installation (required for App auth)
     if "installation" not in payload:
@@ -209,7 +220,7 @@ async def webhook(
         )
 
     background_tasks.add_task(_handle_pr_event, payload)
-    return JSONResponse({"status": "accepted"})
+    return JSONResponse({"status": "accepted"}, status_code=202)
 
 
 # ---------------------------------------------------------------------------

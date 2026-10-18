@@ -1,16 +1,23 @@
-import os
 from functools import lru_cache
-from pydantic_settings import BaseSettings
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        # Unknown env vars are fine — don't error on them
+        extra="ignore",
+    )
+
     # GitHub App credentials
-    github_app_id: str
-    github_private_key: str          # Full PEM string (newlines as \n)
-    github_webhook_secret: str
+    github_app_id: str = ""
+    github_private_key: str = ""     # Full PEM string (newlines as \n)
+    github_webhook_secret: str = ""
 
     # Anthropic
-    anthropic_api_key: str
+    anthropic_api_key: str = ""
 
     # Behaviour
     max_files_per_review: int = 50   # Skip files beyond this count
@@ -39,9 +46,14 @@ class Settings(BaseSettings):
         "*.auto.*",
     ]
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    def is_configured(self) -> bool:
+        """Return True only when all required credentials are present."""
+        return bool(
+            self.github_app_id
+            and self.github_private_key
+            and self.github_webhook_secret
+            and self.anthropic_api_key
+        )
 
 
 @lru_cache
