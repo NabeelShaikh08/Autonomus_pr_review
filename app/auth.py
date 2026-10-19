@@ -28,7 +28,7 @@ def _build_jwt() -> str:
         "exp": now + 540,  # expires in 9 min (GitHub max is 10)
         "iss": settings.github_app_id,
     }
-    private_key = settings.github_private_key.replace("\\n", "\n")
+    private_key = settings.github_private_key.replace("\\n", "\n").strip()
     return pyjwt.encode(payload, private_key, algorithm="RS256")
 
 
