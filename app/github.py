@@ -40,7 +40,7 @@ async def _get(client: httpx.AsyncClient, url: str, token: str, **kwargs) -> Any
 
         if resp.status_code == 403 and "rate limit" in resp.text.lower():
             reset = int(resp.headers.get("X-RateLimit-Reset", 0))
-            wait = max(reset - int(asyncio.get_event_loop().time()), 1)
+            wait = max(reset - int(asyncio.get_running_loop().time()), 1)
             logger.warning("GitHub rate limit hit; waiting %ds", wait)
             await asyncio.sleep(min(wait, 60))
             continue

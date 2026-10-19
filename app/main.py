@@ -11,6 +11,7 @@ Single endpoint: POST /webhook
 import asyncio
 import hashlib
 import hmac
+import json
 import logging
 import logging.config
 
@@ -108,16 +109,20 @@ async def _handle_pr_event(payload: dict) -> None:
     Full review pipeline. Runs in the background after webhook is acknowledged.
     Any exception here is logged but does not affect the HTTP response.
     """
-    pr = payload["pull_request"]
-    repo = payload["repository"]
-    installation_id: int = payload["installation"]["id"]
+    try:
+        pr = payload["pull_request"]
+        repo = payload["repository"]
+        installation_id: int = payload["installation"]["id"]
 
-    owner: str = repo["owner"]["login"]
-    repo_name: str = repo["name"]
-    pr_number: int = pr["number"]
-    commit_sha: str = pr["head"]["sha"]
-    pr_title: str = pr["title"]
-    pr_body: str = pr.get("body") or ""
+        owner: str = repo["owner"]["login"]
+        repo_name: str = repo["name"]
+        pr_number: int = pr["number"]
+        commit_sha: str = pr["head"]["sha"]
+        pr_title: str = pr["title"]
+        pr_body: str = pr.get("body") or ""
+    except KeyError as e:
+        logger.error("Malformed webhook payload — missing key: %s", e)
+        return
 
     logger.info(
         "Processing PR #%d in %s/%s (commit %s)",
@@ -195,7 +200,7 @@ async def webhook(
     """
     payload_bytes = await request.body()
 
-    # Security: verify before parsing
+    # Security: verify signature before parsing anything
     _verify_signature(payload_bytes, x_hub_signature_256)
 
     # Only process pull_request events
@@ -203,7 +208,12 @@ async def webhook(
         logger.debug("Ignoring event: %s", x_github_event)
         return JSONResponse({"status": "ignored", "event": x_github_event}, status_code=202)
 
-    payload = await request.json()
+    # Parse once from the already-read bytes to avoid re-reading the stream
+    try:
+        payload = json.loads(payload_bytes)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
     action: str = payload.get("action", "")
 
     # Only review when a PR is opened, updated, or reopened
@@ -229,4 +239,22 @@ async def webhook(
 
 @app.get("/health")
 async def health() -> JSONResponse:
-    return JSONResponse({"status": "ok"})
+    import httpx
+    checks: dict[str, str] = {}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get("https://api.github.com", timeout=5)
+        checks["github"] = "ok" if r.status_code in (200, 301) else "degraded"
+    except Exception:
+        checks["github"] = "unreachable"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get("https://api.groq.com", timeout=5)
+        checks["groq"] = "ok" if r.status_code < 500 else "degraded"
+    except Exception:
+        checks["groq"] = "unreachable"
+
+    overall = "ok" if all(v == "ok" for v in checks.values()) else "degraded"
+    return JSONResponse({"status": overall, "checks": checks})

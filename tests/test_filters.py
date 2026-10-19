@@ -9,7 +9,7 @@ MOCK_SETTINGS = {
     "github_app_id": "1",
     "github_private_key": "key",
     "github_webhook_secret": "secret",
-    "anthropic_api_key": "key",
+    "groq_api_key": "key",
     "max_files_per_review": 3,
     "max_patch_chars": 100,
     "ignored_patterns": ["package-lock.json", "vendor/", "*.min.js"],

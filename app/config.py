@@ -1,5 +1,4 @@
 from functools import lru_cache
-from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +17,7 @@ class Settings(BaseSettings):
 
     # Groq
     groq_api_key: str = ""
+    groq_model: str = "qwen/qwen3.8-27b"
 
     # Behaviour
     max_files_per_review: int = 50   # Skip files beyond this count

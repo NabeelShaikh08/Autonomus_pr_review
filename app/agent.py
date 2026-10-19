@@ -1,26 +1,27 @@
 """
 Groq agentic loop for PR code review.
 
-Uses Llama 3.3 70B via Groq (free tier).
-Groq's SDK is OpenAI-compatible — tool use works identically.
+Uses Groq (free tier) with tool use.
 
-Claude is given two tools:
+Tools:
   - add_review_comment  : flag an issue on a specific file + line
   - set_review_summary  : write the overall PR summary (called once, at the end)
 
 The loop runs until set_review_summary is called or the max-iteration guard fires.
 """
 
+import asyncio
 import logging
-from groq import Groq
+from groq import Groq, APIError, APITimeoutError, RateLimitError
 
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-_MODEL = "qwen/qwen3.8-27b"
 _MAX_TOKENS = 4096
 _MAX_ITERATIONS = 10
+_GROQ_MAX_RETRIES = 3
+_GROQ_RETRY_BACKOFF = 2  # seconds
 
 _SYSTEM_PROMPT = """\
 You are a senior software engineer conducting a professional pull request review. \
@@ -183,13 +184,38 @@ async def run_review(
         iterations += 1
         logger.debug("Groq iteration %d", iterations)
 
-        response = client.chat.completions.create(
-            model=_MODEL,
-            max_tokens=_MAX_TOKENS,
-            tools=_TOOLS,
-            tool_choice="auto",
-            messages=messages,
-        )
+        # Retry Groq API call on transient errors
+        response = None
+        for attempt in range(1, _GROQ_MAX_RETRIES + 1):
+            try:
+                response = client.chat.completions.create(
+                    model=settings.groq_model,
+                    max_tokens=_MAX_TOKENS,
+                    tools=_TOOLS,
+                    tool_choice="auto",
+                    messages=messages,
+                )
+                break
+            except RateLimitError:
+                wait = _GROQ_RETRY_BACKOFF * attempt
+                logger.warning("Groq rate limit hit; retrying in %ds (attempt %d)", wait, attempt)
+                await asyncio.sleep(wait)
+            except APITimeoutError:
+                wait = _GROQ_RETRY_BACKOFF * attempt
+                logger.warning("Groq timeout; retrying in %ds (attempt %d)", wait, attempt)
+                await asyncio.sleep(wait)
+            except APIError as e:
+                if attempt < _GROQ_MAX_RETRIES and e.status_code in (500, 502, 503, 504):
+                    await asyncio.sleep(_GROQ_RETRY_BACKOFF * attempt)
+                else:
+                    raise
+
+        if response is None:
+            raise RuntimeError("Groq API failed after all retries")
+
+        if not response.choices:
+            logger.warning("Groq returned empty choices on iteration %d — stopping", iterations)
+            break
 
         message = response.choices[0].message
         finish_reason = response.choices[0].finish_reason
