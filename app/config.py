@@ -26,24 +26,98 @@ class Settings(BaseSettings):
 
     # Files/extensions to never review
     ignored_patterns: list[str] = [
+        # Dependency lock files
         "package-lock.json",
         "yarn.lock",
         "pnpm-lock.yaml",
         "poetry.lock",
         "Pipfile.lock",
+        "Gemfile.lock",
+        "composer.lock",
+        "Cargo.lock",
+        "go.sum",
+        "*.lock",
+
+        # Minified / bundled assets
         "*.min.js",
         "*.min.css",
+        "*.bundle.js",
+        "*.chunk.js",
+
+        # Source maps
         "*.map",
-        "dist/",
-        "build/",
-        "vendor/",
-        "node_modules/",
-        "__pycache__/",
-        "*.pb",
-        "*.pyc",
-        "migrations/",
+
+        # Generated / auto code
         "*.generated.*",
         "*.auto.*",
+        "*.g.dart",
+        "*.pb.go",
+        "*.pb.swift",
+        "*.pb.cc",
+        "*.pb.h",
+        "*.pb",
+
+        # Build output directories
+        "dist/",
+        "build/",
+        "out/",
+        ".next/",
+        ".nuxt/",
+        ".svelte-kit/",
+        "target/",
+        "bin/",
+        "obj/",
+        "__pycache__/",
+
+        # Dependency directories
+        "node_modules/",
+        "vendor/",
+        ".venv/",
+        "venv/",
+        "env/",
+
+        # Compiled bytecode
+        "*.pyc",
+        "*.pyo",
+        "*.class",
+        "*.o",
+        "*.a",
+        "*.so",
+        "*.dll",
+        "*.exe",
+
+        # Database migrations (auto-generated)
+        "migrations/",
+        "alembic/versions/",
+
+        # Test snapshots and fixtures
+        "*.snap",
+        "__snapshots__/",
+
+        # Documentation and config that doesn't need code review
+        "*.md",
+        "*.rst",
+        "*.txt",
+        "*.csv",
+        "*.json",
+        "*.yaml",
+        "*.yml",
+        "*.toml",
+        "*.ini",
+        "*.cfg",
+        "*.env*",
+
+        # Assets
+        "*.svg",
+        "*.png",
+        "*.jpg",
+        "*.jpeg",
+        "*.gif",
+        "*.ico",
+        "*.woff",
+        "*.woff2",
+        "*.ttf",
+        "*.eot",
     ]
 
     def is_configured(self) -> bool:
