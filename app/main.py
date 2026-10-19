@@ -12,6 +12,7 @@ import hmac
 import json
 import logging
 import re
+import subprocess
 import time as _time
 import uuid
 
@@ -29,6 +30,20 @@ from app.queue import enqueue_review
 
 logger = logging.getLogger(__name__)
 
+_REVIEW_TIMEOUT_SECONDS = 600  # 10-minute hard cap per review
+
+
+def _get_version() -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except Exception:
+        return "unknown"
+
+
 # ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
@@ -44,7 +59,11 @@ async def lifespan(app: FastAPI):
             "Copy .env.example to .env and fill in all values."
         )
 
-    logger.info("PR Reviewer starting up (App ID: %s)", settings.github_app_id)
+    logger.info(
+        "PR Reviewer starting up (App ID: %s, version: %s)",
+        settings.github_app_id,
+        _get_version(),
+    )
 
     # Init database if configured
     from app.db import init_db, close_db
@@ -147,10 +166,35 @@ async def _handle_pr_event(payload: dict, trace_id: str = "-") -> None:
             len(reviewable), len(raw_files), pr_number,
         )
 
-        diff_text = build_diff_text(reviewable)
-        summary, comments = await run_review(pr_title, pr_body, diff_text)
-        verdict = _extract_verdict(summary)
+        diff_text, diff_truncated = build_diff_text(reviewable)
+        try:
+            summary, comments = await asyncio.wait_for(
+                run_review(pr_title, pr_body, diff_text),
+                timeout=_REVIEW_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                "Review timed out after %ds for %s/%s #%d",
+                _REVIEW_TIMEOUT_SECONDS, owner, repo_name, pr_number,
+            )
+            summary = (
+                "## PR Review ⏱️ TIMED OUT\n\n"
+                "The review could not be completed within the time limit. "
+                "This usually means the diff is very large or the AI service is under heavy load. "
+                "Please re-open or push a new commit to trigger a fresh review.\n\n"
+                "---\n*Reviewed by [PR Reviewer](https://github.com/NabeelShaikh08/prreview)*"
+            )
+            comments = []
+            verdict = "ERROR"
+        if verdict != "ERROR":
+            verdict = _extract_verdict(summary)
         comment_count = len(comments)
+
+        if diff_truncated:
+            summary += (
+                "\n\n> ⚠️ **Note:** This PR's diff was too large to review in full. "
+                "Some files may not have been included in this review."
+            )
 
         await post_review(
             owner=owner,
@@ -242,6 +286,25 @@ async def webhook(
 
     delivery_id = x_github_delivery or str(uuid.uuid4())
     set_trace_id(delivery_id)
+
+    # Overflow protection: reject if queue is too deep
+    from app.queue import queue_depth
+    try:
+        depth = await queue_depth()
+        max_depth = get_settings().max_queue_depth
+        if depth >= max_depth:
+            logger.warning(
+                "Queue depth %d >= limit %d — rejecting delivery %s",
+                depth, max_depth, delivery_id,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail="Reviewer is busy — too many pending reviews. Please retry later.",
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # Redis unavailable — let it through, fallback handles it
 
     # Enqueue via Redis if available, else run in-process (local/test mode)
     try:

@@ -70,10 +70,13 @@ def filter_files(files: list[PRFile]) -> list[PRFile]:
     return reviewable
 
 
-def build_diff_text(files: list[PRFile]) -> str:
+def build_diff_text(files: list[PRFile]) -> tuple[str, bool]:
     """
-    Concatenate all patches into a single diff string for Claude.
+    Concatenate all patches into a single diff string for the AI.
     Truncates at max_patch_chars to stay within token budget.
+
+    Returns:
+        (diff_text, was_truncated)
     """
     settings = get_settings()
     parts: list[str] = []
@@ -91,5 +94,6 @@ def build_diff_text(files: list[PRFile]) -> str:
         )
         combined = combined[: settings.max_patch_chars]
         combined += "\n\n[diff truncated — PR is too large to review in full]"
+        return combined, True
 
-    return combined
+    return combined, False

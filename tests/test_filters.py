@@ -69,17 +69,19 @@ class TestBuildDiffText:
         files = [make_file("src/app.py", patch="@@ -1 +1 @@\n+hello")]
         with patch("app.filters.get_settings") as mock:
             mock.return_value.max_patch_chars = 10_000
-            result = build_diff_text(files)
+            result, truncated = build_diff_text(files)
 
         assert "src/app.py" in result
         assert "+hello" in result
+        assert truncated is False
 
     def test_truncates_large_diffs(self):
         patch_text = "x" * 200
         files = [make_file("src/big.py", patch=patch_text)]
         with patch("app.filters.get_settings") as mock:
             mock.return_value.max_patch_chars = 100
-            result = build_diff_text(files)
+            result, truncated = build_diff_text(files)
 
         assert "truncated" in result
+        assert truncated is True
         assert len(result) <= 200

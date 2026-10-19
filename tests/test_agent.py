@@ -26,6 +26,11 @@ def _make_response(tool_calls=None, finish_reason="tool_calls", content=""):
 
 
 class TestRunReview:
+    def setup_method(self):
+        # Reset singleton so each test gets a fresh mock client
+        import app.agent as agent_module
+        agent_module._groq_client = None
+
     @pytest.mark.asyncio
     async def test_returns_summary_on_approved_pr(self):
         from app.agent import run_review
@@ -36,13 +41,12 @@ class TestRunReview:
         })
         response = _make_response(tool_calls=[summary_call])
 
-        with patch("app.agent.Groq") as mock_groq_cls, \
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = response
+
+        with patch("app.agent._get_groq_client", return_value=mock_client), \
              patch("app.agent.get_settings") as mock_settings:
-            mock_settings.return_value.groq_api_key = "key"
             mock_settings.return_value.groq_model = "test-model"
-            mock_client = MagicMock()
-            mock_client.chat.completions.create.return_value = response
-            mock_groq_cls.return_value = mock_client
 
             summary, comments = await run_review("Fix bug", "", "+ fixed = True")
 
@@ -67,13 +71,12 @@ class TestRunReview:
         resp1 = _make_response(tool_calls=[comment_call])
         resp2 = _make_response(tool_calls=[summary_call])
 
-        with patch("app.agent.Groq") as mock_groq_cls, \
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = [resp1, resp2]
+
+        with patch("app.agent._get_groq_client", return_value=mock_client), \
              patch("app.agent.get_settings") as mock_settings:
-            mock_settings.return_value.groq_api_key = "key"
             mock_settings.return_value.groq_model = "test-model"
-            mock_client = MagicMock()
-            mock_client.chat.completions.create.side_effect = [resp1, resp2]
-            mock_groq_cls.return_value = mock_client
 
             summary, comments = await run_review("Add feature", "", "+ x = None\n+ x.method()")
 
@@ -90,13 +93,12 @@ class TestRunReview:
         empty_resp = MagicMock()
         empty_resp.choices = []
 
-        with patch("app.agent.Groq") as mock_groq_cls, \
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = empty_resp
+
+        with patch("app.agent._get_groq_client", return_value=mock_client), \
              patch("app.agent.get_settings") as mock_settings:
-            mock_settings.return_value.groq_api_key = "key"
             mock_settings.return_value.groq_model = "test-model"
-            mock_client = MagicMock()
-            mock_client.chat.completions.create.return_value = empty_resp
-            mock_groq_cls.return_value = mock_client
 
             summary, comments = await run_review("Test", "", "+ x = 1")
 
@@ -120,13 +122,12 @@ class TestRunReview:
         resp1 = _make_response(tool_calls=[bad_tc])
         resp2 = _make_response(tool_calls=[summary_call])
 
-        with patch("app.agent.Groq") as mock_groq_cls, \
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = [resp1, resp2]
+
+        with patch("app.agent._get_groq_client", return_value=mock_client), \
              patch("app.agent.get_settings") as mock_settings:
-            mock_settings.return_value.groq_api_key = "key"
             mock_settings.return_value.groq_model = "test-model"
-            mock_client = MagicMock()
-            mock_client.chat.completions.create.side_effect = [resp1, resp2]
-            mock_groq_cls.return_value = mock_client
 
             summary, comments = await run_review("Test", "", "+ x = 1")
 
@@ -151,17 +152,13 @@ class TestRunReview:
             body={},
         )
 
-        with patch("app.agent.Groq") as mock_groq_cls, \
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = [mock_rate_limit, good_resp]
+
+        with patch("app.agent._get_groq_client", return_value=mock_client), \
              patch("app.agent.get_settings") as mock_settings, \
              patch("asyncio.sleep", return_value=None):
-            mock_settings.return_value.groq_api_key = "key"
             mock_settings.return_value.groq_model = "test-model"
-            mock_client = MagicMock()
-            mock_client.chat.completions.create.side_effect = [
-                mock_rate_limit,
-                good_resp,
-            ]
-            mock_groq_cls.return_value = mock_client
 
             summary, comments = await run_review("Test", "", "+ x = 1")
 

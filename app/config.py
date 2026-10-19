@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     # Behaviour
     max_files_per_review: int = 50   # Skip files beyond this count
     max_patch_chars: int = 80_000    # Truncate total diff beyond this
+    max_queue_depth: int = 100       # Reject webhooks when queue exceeds this
     log_level: str = "INFO"
 
     # Files/extensions to never review

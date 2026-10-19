@@ -18,6 +18,15 @@ from groq import Groq, APIError, APITimeoutError, RateLimitError
 from app.config import get_settings
 from app.metrics import groq_errors_total
 
+_groq_client: Groq | None = None
+
+
+def _get_groq_client() -> Groq:
+    global _groq_client
+    if _groq_client is None:
+        _groq_client = Groq(api_key=get_settings().groq_api_key)
+    return _groq_client
+
 logger = logging.getLogger(__name__)
 
 _MAX_TOKENS = 4096
@@ -180,7 +189,7 @@ async def run_review(
     import json
 
     settings = get_settings()
-    client = Groq(api_key=settings.groq_api_key)
+    client = _get_groq_client()
 
     user_message = (
         "Review the following pull request. "

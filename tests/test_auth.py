@@ -10,14 +10,14 @@ class TestTokenCaching:
     def setup_method(self):
         # Clear the cache before each test
         import app.auth as auth_module
-        auth_module._token_cache.clear()
+        auth_module._local_cache.clear()
         auth_module._token_locks.clear()
 
     @pytest.mark.asyncio
     async def test_returns_cached_token_when_valid(self):
         import app.auth as auth_module
         future_expiry = time.time() + 3600
-        auth_module._token_cache[42] = ("cached-token", future_expiry)
+        auth_module._local_cache[42] = ("cached-token", future_expiry)
 
         token = await auth_module.get_installation_token(42)
         assert token == "cached-token"
@@ -44,14 +44,14 @@ class TestTokenCaching:
             token = await auth_module.get_installation_token(99)
 
         assert token == "new-token"
-        assert 99 in auth_module._token_cache
+        assert 99 in auth_module._local_cache
 
     @pytest.mark.asyncio
     async def test_refreshes_token_near_expiry(self):
         import app.auth as auth_module
         # Set token expiring in 2 minutes (within the 5-minute buffer)
         soon_expiry = time.time() + 120
-        auth_module._token_cache[7] = ("old-token", soon_expiry)
+        auth_module._local_cache[7] = ("old-token", soon_expiry)
 
         mock_resp = MagicMock()
         mock_resp.status_code = 201
