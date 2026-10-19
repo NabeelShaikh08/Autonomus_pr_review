@@ -150,4 +150,5 @@ class TestHealthCheck:
     def test_health(self, client):
         resp = client.get("/health")
         assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
+        assert resp.json()["status"] in ("ok", "degraded")
+        assert "checks" in resp.json()

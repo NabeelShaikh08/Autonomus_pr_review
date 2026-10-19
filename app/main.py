@@ -286,13 +286,33 @@ async def health() -> JSONResponse:
         checks["groq"] = "unreachable"
 
     from app.queue import queue_depth
+    from app.redis_client import get_redis
     try:
+        r = await get_redis()
+        await r.ping()
         depth = await queue_depth()
+        checks["redis"] = "ok"
         checks["queue_depth"] = str(depth)
     except Exception:
+        checks["redis"] = "unreachable"
         checks["queue_depth"] = "unavailable"
 
-    overall = "ok" if checks.get("github") == "ok" else "degraded"
+    from app.db import _pool as db_pool
+    try:
+        if db_pool is None:
+            checks["postgres"] = "not_configured"
+        else:
+            async with db_pool.acquire() as conn:
+                row = await conn.fetchrow("SELECT COUNT(*) AS total FROM reviews")
+                checks["postgres"] = "ok"
+                checks["total_reviews"] = str(row["total"])
+    except Exception:
+        checks["postgres"] = "unreachable"
+
+    overall = "ok" if all(
+        v in ("ok", "not_configured") for k, v in checks.items()
+        if k in ("github", "groq", "redis", "postgres")
+    ) else "degraded"
     return JSONResponse({"status": overall, "checks": checks})
 
 
