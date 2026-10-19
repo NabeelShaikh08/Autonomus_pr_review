@@ -21,7 +21,7 @@ def get_redis_pool() -> aioredis.ConnectionPool:
             max_connections=10,
             decode_responses=True,
             socket_connect_timeout=2,
-            socket_timeout=2,
+            socket_timeout=None,  # BRPOP blocks; let it use its own timeout
         )
     return _pool
 
