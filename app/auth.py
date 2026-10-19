@@ -28,7 +28,11 @@ def _build_jwt() -> str:
         "exp": now + 540,  # expires in 9 min (GitHub max is 10)
         "iss": settings.github_app_id,
     }
-    private_key = settings.github_private_key.replace("\\n", "\n").strip()
+    raw = settings.github_private_key.strip()
+    # Handle both literal \n (from .env) and real newlines (from Railway)
+    if "\\n" in raw and "\n" not in raw:
+        raw = raw.replace("\\n", "\n")
+    private_key = raw
     return pyjwt.encode(payload, private_key, algorithm="RS256")
 
 
