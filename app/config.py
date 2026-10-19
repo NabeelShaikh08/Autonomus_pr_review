@@ -19,6 +19,16 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model: str = "qwen/qwen3.8-27b"
 
+    # Redis (queue + token cache)
+    redis_url: str = "redis://localhost:6379"
+
+    # PostgreSQL (audit log — optional)
+    database_url: str = ""
+
+    # Worker
+    worker_concurrency: int = 3
+    dedup_ttl_seconds: int = 3600
+
     # Behaviour
     max_files_per_review: int = 50   # Skip files beyond this count
     max_patch_chars: int = 80_000    # Truncate total diff beyond this

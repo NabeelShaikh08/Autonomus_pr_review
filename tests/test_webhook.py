@@ -73,13 +73,14 @@ class TestSignatureVerification:
 
     def test_accepts_valid_signature(self, client):
         payload = json.dumps(_pr_payload()).encode()
-        with patch("app.main._handle_pr_event", new_callable=AsyncMock):
+        with patch("app.main.enqueue_review", new_callable=AsyncMock, return_value=True):
             resp = client.post(
                 "/webhook",
                 content=payload,
                 headers={
                     "X-GitHub-Event": "pull_request",
                     "X-Hub-Signature-256": _sign(payload),
+                    "X-GitHub-Delivery": "test-delivery-1",
                 },
             )
         assert resp.status_code == 202
@@ -94,6 +95,7 @@ class TestEventRouting:
             headers={
                 "X-GitHub-Event": event,
                 "X-Hub-Signature-256": _sign(body, sign_secret),
+                "X-GitHub-Delivery": "test-delivery-routing",
             },
         )
 
@@ -108,19 +110,19 @@ class TestEventRouting:
         assert resp.json()["status"] == "ignored"
 
     def test_accepts_pr_opened(self, client):
-        with patch("app.main._handle_pr_event", new_callable=AsyncMock):
+        with patch("app.main.enqueue_review", new_callable=AsyncMock, return_value=True):
             resp = self._post(client, "pull_request", _pr_payload(action="opened"))
         assert resp.status_code == 202
         assert resp.json()["status"] == "accepted"
 
     def test_accepts_pr_synchronize(self, client):
-        with patch("app.main._handle_pr_event", new_callable=AsyncMock):
+        with patch("app.main.enqueue_review", new_callable=AsyncMock, return_value=True):
             resp = self._post(client, "pull_request", _pr_payload(action="synchronize"))
         assert resp.status_code == 202
         assert resp.json()["status"] == "accepted"
 
     def test_accepts_pr_reopened(self, client):
-        with patch("app.main._handle_pr_event", new_callable=AsyncMock):
+        with patch("app.main.enqueue_review", new_callable=AsyncMock, return_value=True):
             resp = self._post(client, "pull_request", _pr_payload(action="reopened"))
         assert resp.status_code == 202
         assert resp.json()["status"] == "accepted"

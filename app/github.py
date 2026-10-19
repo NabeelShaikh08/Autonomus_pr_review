@@ -10,9 +10,12 @@ Handles:
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 import httpx
+
+from app.metrics import github_errors_total
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +43,7 @@ async def _get(client: httpx.AsyncClient, url: str, token: str, **kwargs) -> Any
 
         if resp.status_code == 403 and "rate limit" in resp.text.lower():
             reset = int(resp.headers.get("X-RateLimit-Reset", 0))
-            wait = max(reset - int(asyncio.get_running_loop().time()), 1)
+            wait = max(reset - int(time.time()), 1)
             logger.warning("GitHub rate limit hit; waiting %ds", wait)
             await asyncio.sleep(min(wait, 60))
             continue
@@ -50,6 +53,7 @@ async def _get(client: httpx.AsyncClient, url: str, token: str, **kwargs) -> Any
             continue
 
         logger.error("GitHub GET %s → %d: %s", url, resp.status_code, resp.text[:300])
+        github_errors_total.labels(status_code=str(resp.status_code)).inc()
         resp.raise_for_status()
 
     raise RuntimeError(f"GitHub GET {url} failed after {_MAX_RETRIES} attempts")
@@ -161,4 +165,5 @@ async def post_review(
         logger.error(
             "Failed to post review: %d %s", resp.status_code, resp.text[:300]
         )
+        github_errors_total.labels(status_code=str(resp.status_code)).inc()
         resp.raise_for_status()

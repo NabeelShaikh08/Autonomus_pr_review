@@ -64,9 +64,8 @@ async def get_installation_token(installation_id: int) -> str:
             return token
 
     # Acquire a per-installation lock to prevent duplicate fetches
-    if installation_id not in _token_locks:
-        _token_locks[installation_id] = asyncio.Lock()
-    lock = _token_locks[installation_id]
+    # setdefault is atomic in CPython — no TOCTOU race between check and insert
+    lock = _token_locks.setdefault(installation_id, asyncio.Lock())
 
     async with lock:
         # Re-check cache after acquiring lock — another coroutine may have fetched already
