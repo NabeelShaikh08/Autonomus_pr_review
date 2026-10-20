@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     max_queue_depth: int = 100       # Reject webhooks when queue exceeds this
     log_level: str = "INFO"
 
+    # Per-agent timeouts (seconds)
+    specialist_timeout_seconds: int = 180   # 3 min per specialist
+    coordinator_timeout_seconds: int = 120  # 2 min for coordinator
+
     # Files/extensions to never review
     ignored_patterns: list[str] = [
         # Dependency lock files

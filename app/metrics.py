@@ -19,6 +19,9 @@ __all__ = [
     "duplicates_skipped_total",
     "review_latency_seconds",
     "queue_depth_gauge",
+    "agent_comments_total",
+    "agent_latency_seconds",
+    "agent_timeouts_total",
     "generate_latest",
     "CONTENT_TYPE_LATEST",
 ]
@@ -61,4 +64,23 @@ review_latency_seconds = Histogram(
 queue_depth_gauge = Gauge(
     "prreviewer_queue_depth",
     "Current number of jobs waiting in the Redis review queue",
+)
+
+agent_comments_total = Counter(
+    "prreviewer_agent_comments_total",
+    "Comments flagged per specialist agent and risk level",
+    ["agent", "risk"],
+)
+
+agent_latency_seconds = Histogram(
+    "prreviewer_agent_latency_seconds",
+    "Per-agent wall-clock time in seconds",
+    ["agent"],
+    buckets=[1, 5, 10, 20, 30, 60, 120, 180],
+)
+
+agent_timeouts_total = Counter(
+    "prreviewer_agent_timeouts_total",
+    "Number of times a specialist or coordinator agent timed out",
+    ["agent"],
 )
